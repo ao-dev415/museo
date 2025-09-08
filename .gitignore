@@ -1,0 +1,9 @@
+# Local environment
+.env
+.venv/
+__pycache__/
+
+# Generated artifacts
+*.pdf
+logs/
+state/
