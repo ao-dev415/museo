@@ -22,12 +22,12 @@ jobs:
       - name: Run Twilio test
         run: |
           if [ "${{ github.event.inputs.mode }}" = "call" ]; then
-            python monitor.py --call
+            python twilio_test.py --call
           elif [ "${{ github.event.inputs.mode }}" = "sms" ]; then
-            python monitor.py --sms
+            python twilio_test.py --sms
           else
-            python monitor.py --call
-            python monitor.py --sms
+            python twilio_test.py --call
+            python twilio_test.py --sms
           fi
         env:
           TWILIO_SID: ${{ secrets.TWILIO_SID }}
