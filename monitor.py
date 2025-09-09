@@ -11,17 +11,17 @@ import requests
 from bs4 import BeautifulSoup
 from twilio.rest import Client
 
-CSS_INDEX    = int(os.getenv("MONITOR_CSS_INDEX", "0"))
-
+# -------- Config from env / GitHub Secrets --------
 URL           = os.getenv("MONITOR_URL", "").strip()
 CSS_SELECTOR  = os.getenv("MONITOR_CSS_SELECTOR", "").strip()
 REGEX_CAPTURE = os.getenv("MONITOR_REGEX_CAPTURE", "").strip()
+CSS_INDEX     = int(os.getenv("MONITOR_CSS_INDEX", "0"))
 TIMEOUT_SEC   = int(os.getenv("MONITOR_TIMEOUT_SEC", "30"))
 
 STATE_FILE    = Path(os.getenv("MONITOR_STATE_FILE", "./state/monitor_state.json"))
 LOG_DIR       = Path(os.getenv("MONITOR_LOG_DIR", "./logs"))
 
-# Optional: if set to "1", call on extraction errors so you don't miss breakage
+# Call if extractor fails?
 CALL_ON_ERROR = os.getenv("MONITOR_CALL_ON_ERROR", "0") == "1"
 
 TWILIO_SID  = os.getenv("TWILIO_SID", "")
@@ -29,6 +29,7 @@ TWILIO_AUTH = os.getenv("TWILIO_AUTH", "")
 TWILIO_FROM = os.getenv("TWILIO_FROM", "")
 TWILIO_TO   = os.getenv("TWILIO_TO", "")
 
+# ------------- utils -------------
 def now_utc(): return dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc)
 def today_key(): return now_utc().date().isoformat()
 
@@ -60,27 +61,36 @@ def fetch_content(url: str) -> str:
     r.raise_for_status()
     return r.text
 
+def _soup(html: str):
+    return BeautifulSoup(html, "html.parser")
+
 def extract_value(html: str) -> str:
+    # Prefer CSS if provided
     if CSS_SELECTOR:
-        node = BeautifulSoup(html, "html.parser").select_one(CSS_SELECTOR)
-        if not node:
+        els = _soup(html).select(CSS_SELECTOR)
+        if not els:
             raise ValueError(f"CSS selector not found: {CSS_SELECTOR}")
-        t = node.get_text(strip=True)
-        if not t:
-            raise ValueError(f"CSS selector empty text: {CSS_SELECTOR}")
-        return t
+        i = CSS_INDEX if 0 <= CSS_INDEX < len(els) else 0
+        text = els[i].get_text(" ", strip=True)  # merge across <sup> etc.
+        if not text:
+            raise ValueError(f"No text for selector: {CSS_SELECTOR}[{i}]")
+        return text
+
+    # Fallback to regex on VISIBLE TEXT (not raw HTML) if provided
     if REGEX_CAPTURE:
-        m = re.search(REGEX_CAPTURE, html, re.IGNORECASE | re.DOTALL)
+        visible = _soup(html).get_text(" ", strip=True)
+        m = re.search(REGEX_CAPTURE, visible, re.IGNORECASE | re.DOTALL)
         if not m or not m.group(1):
             raise ValueError(f"Regex capture found no group: {REGEX_CAPTURE}")
         return m.group(1).strip()
+
     raise ValueError("Set MONITOR_CSS_SELECTOR or MONITOR_REGEX_CAPTURE")
 
 def value_hash(s: str):
     import hashlib
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
-# ---------- Twilio ----------
+# -------- Twilio --------
 def _twilio():
     if not all([TWILIO_SID, TWILIO_AUTH, TWILIO_FROM, TWILIO_TO]):
         raise RuntimeError("Twilio env vars missing (TWILIO_*).")
@@ -88,10 +98,10 @@ def _twilio():
 
 def send_call(message: str):
     c = _twilio()
-    call = c.calls.create(to=TWILIO_TO, from_=TWILIO_FROM, twiml=f'<Response><Say>{message}</Say></Response>')
+    call = c.calls.create(to=TWILIO_TO, from_=TWILIO_FROM, twiml=f"<Response><Say>{message}</Say></Response>")
     print(f"Placed call SID={call.sid}")
 
-# ---------- Core ----------
+# -------- Core paths --------
 def run_check(current_value_override: str | None = None):
     if not URL and current_value_override is None:
         raise SystemExit("MONITOR_URL is required (unless using --inject-value).")
@@ -110,7 +120,7 @@ def run_check(current_value_override: str | None = None):
         log(f"ERROR during fetch/extract: {e}")
         if CALL_ON_ERROR:
             try:
-                send_call("Website monitor error. Extraction failed. Please check the selector or regex.")
+                send_call("Website monitor error. Extraction failed. Please check selector or regex.")
             except Exception as e2:
                 log(f"ERROR placing error-call: {e2}")
         return
@@ -127,7 +137,7 @@ def run_check(current_value_override: str | None = None):
     save_state(state)
 
     try:
-        send_call(f"A change was detected. New value is {current_value}.")
+        send_call(f"A change was detected. New value is: {current_value}.")
         log(f"CHANGE detected. Old: {old_value} -> New: {current_value}. Call sent.")
     except Exception as e:
         log(f"ERROR sending change-call: {e}")
@@ -156,7 +166,7 @@ def run_daily_summary(force=False):
     st["changes_today"] = False
     save_state(st)
 
-# ---------- Test / Probe helpers ----------
+# -------- Test / debug helpers --------
 def seed_state_last_value(val: str | None):
     st = load_state()
     if val is None:
@@ -169,7 +179,6 @@ def seed_state_last_value(val: str | None):
     log(f"Seeded state last_value to: {val}")
 
 def probe_once():
-    """Fetch & print the current extracted value (no compare, no calls)."""
     try:
         html = fetch_content(URL)
         val = extract_value(html)
@@ -183,6 +192,17 @@ def probe_once():
             except Exception as e2:
                 log(f"ERROR placing probe error-call: {e2}")
 
+def probe_all():
+    html = fetch_content(URL)
+    if not CSS_SELECTOR:
+        print("[PROBE-ALL] Set MONITOR_CSS_SELECTOR to use this mode.")
+        return
+    els = _soup(html).select(CSS_SELECTOR)
+    print(f"[PROBE-ALL] Found {len(els)} matches for '{CSS_SELECTOR}':")
+    for idx, el in enumerate(els[:20]):
+        print(f"  [{idx}] {el.get_text(' ', strip=True)[:200]}")
+
+# -------- CLI --------
 def main():
     p = argparse.ArgumentParser(description="URL monitor with Twilio call. Includes probe & test hooks.")
     p.add_argument("--check", action="store_true")
@@ -192,15 +212,17 @@ def main():
     p.add_argument("--set-state", type=str, help="Seed last_value (and hash) for tests.")
     p.add_argument("--reset-state", action="store_true", help="Clear last_value/hash.")
     p.add_argument("--probe", action="store_true", help="Fetch & print the current extracted value only.")
+    p.add_argument("--probe-all", action="store_true", help="List matches for CSS selector.")
     p.add_argument("--test-call", action="store_true", help="Immediate test call.")
     args = p.parse_args()
 
-    if args.reset_state:  seed_state_last_value(None); return
+    if args.reset_state:   seed_state_last_value(None); return
     if args.set_state is not None: seed_state_last_value(args.set_state); return
-    if args.test_call:    send_call("This is a test call from the website monitor."); return
-    if args.probe:        probe_once(); return
-    if args.check:        run_check(current_value_override=args.inject_value); return
-    if args.daily_summary:run_daily_summary(force=args.force_summary); return
+    if args.test_call:     send_call("This is a test call from the website monitor."); return
+    if args.probe_all:     probe_all(); return
+    if args.probe:         probe_once(); return
+    if args.check:         run_check(current_value_override=args.inject_value); return
+    if args.daily_summary: run_daily_summary(force=args.force_summary); return
     p.print_help(); sys.exit(1)
 
 if __name__ == "__main__":
