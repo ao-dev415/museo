@@ -11,6 +11,8 @@ import requests
 from bs4 import BeautifulSoup
 from twilio.rest import Client
 
+CSS_INDEX    = int(os.getenv("MONITOR_CSS_INDEX", "0"))
+
 URL           = os.getenv("MONITOR_URL", "").strip()
 CSS_SELECTOR  = os.getenv("MONITOR_CSS_SELECTOR", "").strip()
 REGEX_CAPTURE = os.getenv("MONITOR_REGEX_CAPTURE", "").strip()
