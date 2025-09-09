@@ -1,10 +1,7 @@
 name: Hello
-
-on:
-  workflow_dispatch:
-
+on: { workflow_dispatch: {} }
 jobs:
-  test:
+  ok:
     runs-on: ubuntu-latest
     steps:
       - run: echo "Hello from GitHub Actions!"
