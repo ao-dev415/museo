@@ -3,7 +3,6 @@ name: Website Monitor (live)
 on:
   schedule:
     - cron: "*/15 * * * *"   # every 15 min checks
-    - cron: "0 14 * * *"     # daily summary at 06:00 PST (UTC-8)
   workflow_dispatch:
     inputs:
       mode:
