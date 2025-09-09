@@ -15,7 +15,14 @@ from twilio.rest import Client
 URL           = os.getenv("MONITOR_URL", "").strip()
 CSS_SELECTOR  = os.getenv("MONITOR_CSS_SELECTOR", "").strip()
 REGEX_CAPTURE = os.getenv("MONITOR_REGEX_CAPTURE", "").strip()
-CSS_INDEX     = int(os.getenv("MONITOR_CSS_INDEX", "0"))
+def env_int(name: str, default: int) -> int:
+    v = os.getenv(name, "")
+    try:
+        return int(v.strip())
+    except Exception:
+        return default
+
+CSS_INDEX = env_int("MONITOR_CSS_INDEX", 0)
 TIMEOUT_SEC   = int(os.getenv("MONITOR_TIMEOUT_SEC", "30"))
 
 STATE_FILE    = Path(os.getenv("MONITOR_STATE_FILE", "./state/monitor_state.json"))
