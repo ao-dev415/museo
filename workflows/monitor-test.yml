@@ -1,0 +1,80 @@
+name: Website Monitor — Test Harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "pick: call-test | sms-test | simulate-change | simulate-nochange | daily"
+        required: true
+        default: "call-test"
+      before_value:
+        description: "used for simulate-change/nochange: seeds last_value"
+        required: false
+        default: "November"
+      after_value:
+        description: "used for simulate-change/nochange: injected current value"
+        required: false
+        default: "December"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Prepare dirs
+        run: mkdir -p state logs
+
+      - name: Run selected scenario
+        run: |
+          SCEN="${{ github.event.inputs.scenario }}"
+          case "$SCEN" in
+            call-test)
+              python monitor.py --test-call
+              ;;
+            sms-test)
+              python monitor.py --test-sms
+              ;;
+            simulate-change)
+              python monitor.py --set-state "${{ github.event.inputs.before_value }}"
+              python monitor.py --check --inject-value "${{ github.event.inputs.after_value }}"
+              ;;
+            simulate-nochange)
+              python monitor.py --set-state "${{ github.event.inputs.before_value }}"
+              python monitor.py --check --inject-value "${{ github.event.inputs.before_value }}"
+              ;;
+            daily)
+              python monitor.py --daily-summary --force-summary
+              ;;
+            *)
+              echo "Unknown scenario"; exit 1
+              ;;
+          esac
+        env:
+          # Only Twilio + basic monitor config needed for tests
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          MONITOR_CSS_SELECTOR: ${{ secrets.MONITOR_CSS_SELECTOR }}
+          MONITOR_REGEX_CAPTURE: ${{ secrets.MONITOR_REGEX_CAPTURE }}
+          MONITOR_STATE_FILE: "state/monitor_state.json"
+          MONITOR_LOG_DIR: "logs"
+          TWILIO_SID: ${{ secrets.TWILIO_SID }}
+          TWILIO_AUTH: ${{ secrets.TWILIO_AUTH }}
+          TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
+          TWILIO_TO: ${{ secrets.TWILIO_TO }}
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: logs/**
+          if-no-files-found: ignore
