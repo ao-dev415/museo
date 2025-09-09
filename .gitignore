@@ -1,9 +1,12 @@
-# Local environment
-.env
-.venv/
-__pycache__/
-
-# Generated artifacts
-*.pdf
-logs/
-state/
+-.env
+-.venv/
+-__pycache__/
+-logs/
+-state/
++.env
++.venv/
++__pycache__/
++logs/
++# keep the directory, but track the JSON file
++state/
++!state/monitor_state.json
